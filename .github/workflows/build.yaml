@@ -1,0 +1,82 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+
+jobs:
+  build:
+    name: test-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          # list of Docker images to use as base name for tags
+          images: |
+            ghcr.io/maruina/docker-garmindb
+          # generate Docker tags based on the following events/attributes
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Build and load into the local Docker daemon for smoke testing
+      # before pushing to the registry.
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Verify the image boots and critical runtime dependencies work.
+      - name: Smoke test
+        run: |
+          IMAGE=$(echo "$TAGS" | head -n1)
+          if [ -z "$IMAGE" ]; then
+            echo "::error::Docker metadata tags output is empty. Check the 'Docker meta' step."
+            exit 1
+          fi
+          docker run --rm "$IMAGE" garmindb_cli.py --help
+          docker run --rm "$IMAGE" sqlite3 --version
+          docker run --rm "$IMAGE" test -x /entrypoint.sh
+          # timeout must bound a hung command in-image (exit 124 on expiry);
+          # non-zero here is the expected pass condition.
+          if docker run --rm "$IMAGE" timeout 5 sleep 10; then
+            echo "::error::timeout did not bound the hung command"
+            exit 1
+          fi
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+
+      - name: Docker Login
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Push the exact image that was built and tested, not a cache-based
+      # rebuild, to guarantee artifact identity.
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: |
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && docker push "$tag"
+          done <<< "$TAGS"
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}

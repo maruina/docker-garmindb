@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "garmindb==(?<currentValue>[0-9a-zA-Z.-]+)"
+      ],
+      "depNameTemplate": "garmindb",
+      "datasourceTemplate": "pypi"
+    }
+  ]
+}
