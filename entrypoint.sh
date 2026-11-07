@@ -8,7 +8,8 @@ set -euo pipefail
 # distinct exit code feeds the Datadog sync-heartbeat monitor in malazan.xyz.
 readonly SYNC_TIMEOUT="${SYNC_TIMEOUT:-3600}"
 readonly SLEEP_SECONDS="${SLEEP_SECONDS:-86400}"
-readonly SYNC_CMD=(garmindb_cli.py --all --download --import --analyze --latest --simple-output)
+# --simple-output is a 4.x CLI flag; the current pin (3.9.0) errors on it
+readonly SYNC_CMD=(garmindb_cli.py --all --download --import --analyze --latest)
 
 while true; do
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [entrypoint] Starting GarminDB sync"
