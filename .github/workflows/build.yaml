@@ -55,6 +55,9 @@ jobs:
             exit 1
           fi
           docker run --rm "$IMAGE" garmindb_cli.py --help
+          # full sync arg set must parse against the pinned CLI's argparse
+          # (catches flags the CLI version does not implement, e.g. --simple-output on 3.x)
+          docker run --rm "$IMAGE" garmindb_cli.py --all --download --import --analyze --latest -v
           docker run --rm "$IMAGE" sqlite3 --version
           docker run --rm "$IMAGE" test -x /entrypoint.sh
           # timeout must bound a hung command in-image (exit 124 on expiry);
