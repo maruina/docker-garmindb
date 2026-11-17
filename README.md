@@ -35,6 +35,8 @@ which stores them in a sixth database, `HealthData/DBs/garmin_metrics.db`:
 | `training_status` | Daily status phrase, ACWR status, acute/chronic load, VO2 max | Meaningful from ~2023; older dates store rows without values |
 | `training_readiness` | Per-device daily score, level, feedback | From ~2025 (device support); earlier dates return empty |
 | `race_predictions` | 5K/10K/half/marathon snapshot per run | Current-only: the endpoint takes no date argument |
+| `lactate_threshold` | Lactate threshold heart rate and speed, stored when the value changes | Snapshot endpoint, no per-date history |
+| `body_composition` | Daily body fat, muscle, bone, water from the Index Scale | From the scale's first sync; weight itself lives in GarminDB's Weight table |
 
 Incremental mode (entrypoint default) resumes from the last stored date per
 table. For manual backfill, exec into the running container:

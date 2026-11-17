@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS race_predictions (
     time_half_marathon INTEGER,
     time_marathon INTEGER
 );
+CREATE TABLE IF NOT EXISTS lactate_threshold (
+    day TEXT PRIMARY KEY,
+    lt_heart_rate INTEGER,
+    lt_speed REAL
+);
+CREATE TABLE IF NOT EXISTS body_composition (
+    day TEXT PRIMARY KEY,
+    body_fat REAL,
+    muscle_mass REAL,
+    bone_mass REAL,
+    body_water REAL
+);
 CREATE TABLE IF NOT EXISTS fetch_state (
     table_name TEXT PRIMARY KEY,
     last_day TEXT
@@ -185,6 +197,58 @@ def fetch_race_predictions(con, garmin):
     return 1
 
 
+def fetch_lactate_threshold(con, garmin):
+    """Snapshot endpoint; store the entry when its date changes.
+
+    speed units come back in an unverified Garmin unit; lt_heart_rate is the
+    reliable field.
+    """
+    payload = (garmin.get_lactate_threshold() or {}).get(
+        "speed_and_heart_rate", {}
+    )
+    day = (payload.get("calendarDate") or "")[:10]
+    if not day:
+        return 0
+    stored = last_day(con, "lactate_threshold", "")
+    if day <= stored:
+        return 0
+    con.execute(
+        "INSERT OR REPLACE INTO lactate_threshold VALUES (?, ?, ?)",
+        (day, payload.get("heartRate"), payload.get("speed")),
+    )
+    set_last_day(con, "lactate_threshold", day)
+    return 1
+
+
+def fetch_body_composition(con, garmin, start, end):
+    """Index Scale readings; weight duplicates the Weight table, so only
+    composition fields are stored."""
+    fetched = 0
+    for day in daterange(start, end):
+        iso = day.isoformat()
+        try:
+            payload = garmin.get_body_composition(iso) or {}
+        except Exception as exc:
+            LOG.warning("body_composition %s failed: %s", iso, exc)
+            continue
+        for sample in payload.get("dateWeightList", []):
+            if sample.get("calendarDate", "")[:10] != iso:
+                continue
+            con.execute(
+                "INSERT OR REPLACE INTO body_composition VALUES (?, ?, ?, ?, ?)",
+                (
+                    iso,
+                    sample.get("bodyFat"),
+                    sample.get("muscleMass"),
+                    sample.get("boneMass"),
+                    sample.get("bodyWater"),
+                ),
+            )
+        set_last_day(con, "body_composition", iso)
+        fetched += 1
+    return fetched, 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-date", help="backfill start date (YYYY-MM-DD)")
@@ -209,6 +273,7 @@ def main():
         resume = min(
             last_day(con, "training_status", "2022-12-31"),
             last_day(con, "training_readiness", today.isoformat()),
+            last_day(con, "body_composition", today.isoformat()),
         )
         start = datetime.date.fromisoformat(resume) + datetime.timedelta(days=1)
     end = (
@@ -227,6 +292,8 @@ def main():
         con, garmin, start, end
     )
     counts["race_predictions"] = (fetch_race_predictions(con, garmin), 0)
+    counts["lactate_threshold"] = (fetch_lactate_threshold(con, garmin), 0)
+    counts["body_composition"] = fetch_body_composition(con, garmin, start, end)
     con.commit()
 
     for table, (fetched, empty) in counts.items():

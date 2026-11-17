@@ -16,7 +16,10 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir "garmindb==3.9.0"
+# deliberate: fitfile/idbutils pinned to 1.2.0 — garmindb 3.9.0 leaves them
+# unpinned and fitfile 2.0.0 (released to PyPI after this pin was made) breaks
+# the import path; upgrade together with garmindb 4.0.
+RUN pip install --no-cache-dir "garmindb==3.9.0" "fitfile==1.2.0" "idbutils==1.2.0"
 
 ENV HOME=/local-databases \
     PYTHONUNBUFFERED=1
