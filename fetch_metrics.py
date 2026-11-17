@@ -245,6 +245,7 @@ def fetch_body_composition(con, garmin, start, end):
                 ),
             )
         set_last_day(con, "body_composition", iso)
+        con.commit()
         fetched += 1
     return fetched, 0
 
