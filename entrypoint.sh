@@ -7,9 +7,14 @@ set -euo pipefail
 # headless MFA prompt — fails loudly instead of blocking forever, and the
 # distinct exit code feeds the Datadog sync-heartbeat monitor in malazan.xyz.
 readonly SYNC_TIMEOUT="${SYNC_TIMEOUT:-3600}"
+readonly METRICS_TIMEOUT="${METRICS_TIMEOUT:-1800}"
 readonly SLEEP_SECONDS="${SLEEP_SECONDS:-86400}"
 # --simple-output is a 4.x CLI flag; the current pin (3.9.0) errors on it
 readonly SYNC_CMD=(garmindb_cli.py --all --download --import --analyze --latest)
+# Endpoint-only metrics (training status/ACWR, training readiness, race
+# predictions) that GarminDB does not import; incremental mode resumes from
+# the last stored date. Backfills run manually: fetch_metrics.py --start-date.
+readonly METRICS_CMD=(python3 /usr/local/bin/fetch_metrics.py)
 
 while true; do
   echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [entrypoint] Starting GarminDB sync"
@@ -19,6 +24,9 @@ while true; do
   set -e
   if [ "${exit_code}" -eq 0 ]; then
     echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [entrypoint] GarminDB sync completed"
+    timeout "${METRICS_TIMEOUT}" "${METRICS_CMD[@]}" 2>&1
+    metrics_exit=$?
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [entrypoint] Metrics fetch exited ${metrics_exit}"
   else
     echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [entrypoint] GarminDB sync failed with exit code ${exit_code}"
   fi

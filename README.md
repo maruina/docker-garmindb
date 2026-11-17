@@ -19,7 +19,32 @@ GarminDB resolves its config, database, and download directories relative to `$H
 | `GARMIN_CONNECT_EMAIL` | (required by GarminDB) | Garmin account email |
 | `GARMIN_CONNECT_PASSWORD` | (required by GarminDB) | Garmin account password (or app token, per upstream) |
 | `SYNC_TIMEOUT` | `3600` | Max seconds for one sync cycle (`timeout` bound; a hung run fails loudly) |
+| `METRICS_TIMEOUT` | `1800` | Max seconds for the post-sync metrics fetch (`timeout` bound) |
 | `SLEEP_SECONDS` | `86400` | Sleep between sync cycles in seconds |
+
+## Endpoint-only metrics
+
+GarminDB imports data that arrives as files (FIT, activity/sleep/weight JSON).
+Several Garmin Connect metrics are computed server-side and exist only behind
+per-date API endpoints, so they never reach the SQLite databases. The image
+ships `fetch_metrics.py`, which the entrypoint runs after each sync cycle and
+which stores them in a sixth database, `HealthData/DBs/garmin_metrics.db`:
+
+| Table | Contents | History depth |
+|---|---|---|
+| `training_status` | Daily status phrase, ACWR status, acute/chronic load, VO2 max | Meaningful from ~2023; older dates store rows without values |
+| `training_readiness` | Per-device daily score, level, feedback | From ~2025 (device support); earlier dates return empty |
+| `race_predictions` | 5K/10K/half/marathon snapshot per run | Current-only: the endpoint takes no date argument |
+
+Incremental mode (entrypoint default) resumes from the last stored date per
+table. For manual backfill, exec into the running container:
+
+```console
+python3 /usr/local/bin/fetch_metrics.py --start-date 2023-01-01 --end-date 2026-11-15
+```
+
+The script is read-only with respect to GarminDB's own databases and writes
+only `garmin_metrics.db`.
 
 ## Release flow
 

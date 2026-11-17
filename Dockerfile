@@ -30,6 +30,7 @@ RUN groupadd -r -g 1000 garmin && useradd -r -u 1000 -g garmin -d /local-databas
 WORKDIR /local-databases
 
 COPY --chmod=0755 entrypoint.sh /entrypoint.sh
+COPY --chmod=0755 fetch_metrics.py /usr/local/bin/fetch_metrics.py
 
 USER garmin
 
