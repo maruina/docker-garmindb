@@ -274,10 +274,28 @@ def fetch_score(con, garmin, start, end, kind):
     while chunk_start <= end:
         chunk_end = min(chunk_start + datetime.timedelta(days=30), end)
         a, b = chunk_start.isoformat(), chunk_end.isoformat()
-        try:
-            payload = garmin.get_endurance_score(a, b) if kind == "endurance" else garmin.get_hill_score(a, b)
-        except Exception as exc:
-            LOG.warning("%s score %s..%s failed: %s", kind, a, b, exc)
+        payload = None
+        for attempt in (1, 2):
+            try:
+                payload = (
+                    garmin.get_endurance_score(a, b)
+                    if kind == "endurance"
+                    else garmin.get_hill_score(a, b)
+                )
+                break
+            except Exception as exc:
+                LOG.warning(
+                    "%s score %s..%s failed (attempt %d): %s",
+                    kind, a, b, attempt, exc,
+                )
+                if attempt == 1:
+                    # long runs outlive the token TTL; re-login and retry once
+                    try:
+                        garmin.login(str(TOKEN_PATH))
+                    except Exception as login_exc:
+                        LOG.error("re-login failed: %s", login_exc)
+                        break
+        if payload is None:
             chunk_start = chunk_end + datetime.timedelta(days=1)
             continue
         group_map = payload.get("groupMap", {}) if isinstance(payload, dict) else {}
@@ -324,6 +342,10 @@ def main():
     parser.add_argument("--start-date", help="backfill start date (YYYY-MM-DD)")
     parser.add_argument("--end-date", help="backfill end date, default today")
     parser.add_argument(
+        "--tables",
+        help="comma-separated subset to fetch (e.g. endurance_score,hill_score); default all",
+    )
+    parser.add_argument(
         "--metrics-timeout-note",
         help=argparse.SUPPRESS,
     )
@@ -357,19 +379,43 @@ def main():
 
     LOG.info("Fetching %s to %s", start, end)
     counts = {}
-    counts["training_status"] = fetch_training_status(con, garmin, start, end)
     counts["training_readiness"] = fetch_training_readiness(
         con, garmin, start, end
     )
     counts["race_predictions"] = (fetch_race_predictions(con, garmin), 0)
-    counts["lactate_threshold"] = (fetch_lactate_threshold(con, garmin), 0)
-    counts["body_composition"] = fetch_body_composition(con, garmin, start, end)
+    selected = (
+        {t.strip() for t in args.tables.split(",")}
+        if args.tables
+        else None
+    )
+
+    def wanted(table):
+        return selected is None or table in selected
+
+    counts = {}
+    if wanted("training_status"):
+        counts["training_status"] = fetch_training_status(con, garmin, start, end)
+    if wanted("training_readiness"):
+        counts["training_readiness"] = fetch_training_readiness(
+            con, garmin, start, end
+        )
+    if wanted("race_predictions"):
+        counts["race_predictions"] = (fetch_race_predictions(con, garmin), 0)
+    if wanted("lactate_threshold"):
+        counts["lactate_threshold"] = (fetch_lactate_threshold(con, garmin), 0)
+    if wanted("body_composition"):
+        counts["body_composition"] = fetch_body_composition(con, garmin, start, end)
     # score endpoints return per-group ranges; incremental runs refetch the
     # last ~5 weeks, a backfill walks from --start-date in monthly chunks
     score_start = max(start, end - datetime.timedelta(days=35))
-    counts["endurance_score"] = fetch_score(con, garmin, score_start, end, "endurance")
-    counts["hill_score"] = fetch_score(con, garmin, score_start, end, "hill")
-    counts["workouts"] = fetch_workouts(con, garmin)
+    if wanted("endurance_score"):
+        counts["endurance_score"] = fetch_score(
+            con, garmin, score_start, end, "endurance"
+        )
+    if wanted("hill_score"):
+        counts["hill_score"] = fetch_score(con, garmin, score_start, end, "hill")
+    if wanted("workouts"):
+        counts["workouts"] = fetch_workouts(con, garmin)
     con.commit()
 
     for table, (fetched, empty) in counts.items():
