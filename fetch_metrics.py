@@ -68,6 +68,22 @@ CREATE TABLE IF NOT EXISTS body_composition (
     bone_mass REAL,
     body_water REAL
 );
+CREATE TABLE IF NOT EXISTS endurance_score (
+    day TEXT PRIMARY KEY,
+    average REAL,
+    max_value REAL
+);
+CREATE TABLE IF NOT EXISTS hill_score (
+    day TEXT PRIMARY KEY,
+    payload TEXT
+);
+CREATE TABLE IF NOT EXISTS workouts (
+    workout_id INTEGER PRIMARY KEY,
+    name TEXT,
+    sport TEXT,
+    update_date TEXT,
+    payload TEXT
+);
 CREATE TABLE IF NOT EXISTS fetch_state (
     table_name TEXT PRIMARY KEY,
     last_day TEXT
@@ -250,6 +266,59 @@ def fetch_body_composition(con, garmin, start, end):
     return fetched, 0
 
 
+def fetch_score(con, garmin, start, end, kind):
+    """Endurance/hill score: the API returns per-group daily averages for a
+    date range; fetch in monthly chunks and upsert per group day."""
+    fetched = 0
+    chunk_start = start
+    while chunk_start <= end:
+        chunk_end = min(chunk_start + datetime.timedelta(days=30), end)
+        a, b = chunk_start.isoformat(), chunk_end.isoformat()
+        try:
+            payload = garmin.get_endurance_score(a, b) if kind == "endurance" else garmin.get_hill_score(a, b)
+        except Exception as exc:
+            LOG.warning("%s score %s..%s failed: %s", kind, a, b, exc)
+            chunk_start = chunk_end + datetime.timedelta(days=1)
+            continue
+        group_map = payload.get("groupMap", {}) if isinstance(payload, dict) else {}
+        for day, entry in group_map.items():
+            if not isinstance(entry, dict):
+                continue
+            if kind == "endurance":
+                con.execute(
+                    "INSERT OR REPLACE INTO endurance_score VALUES (?, ?, ?)",
+                    (day, entry.get("groupAverage"), entry.get("groupMax")),
+                )
+            else:
+                con.execute(
+                    "INSERT OR REPLACE INTO hill_score VALUES (?, ?)",
+                    (day, json.dumps(entry, default=str)),
+                )
+            fetched += 1
+        con.commit()
+        chunk_start = chunk_end + datetime.timedelta(days=1)
+    return fetched, 0
+
+
+def fetch_workouts(con, garmin):
+    """Workout library snapshot; the calendar never links these to days, so
+    store the definitions only."""
+    entries = garmin.get_workouts() or []
+    for w in entries:
+        con.execute(
+            "INSERT OR REPLACE INTO workouts VALUES (?, ?, ?, ?, ?)",
+            (
+                w.get("workoutId"),
+                w.get("workoutName"),
+                (w.get("sportType") or {}).get("sportTypeKey"),
+                w.get("updateDate"),
+                json.dumps(w, default=str),
+            ),
+        )
+    set_last_day(con, "workouts", datetime.date.today().isoformat())
+    return len(entries), 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-date", help="backfill start date (YYYY-MM-DD)")
@@ -295,6 +364,12 @@ def main():
     counts["race_predictions"] = (fetch_race_predictions(con, garmin), 0)
     counts["lactate_threshold"] = (fetch_lactate_threshold(con, garmin), 0)
     counts["body_composition"] = fetch_body_composition(con, garmin, start, end)
+    # score endpoints return per-group ranges; incremental runs refetch the
+    # last ~5 weeks, a backfill walks from --start-date in monthly chunks
+    score_start = max(start, end - datetime.timedelta(days=35))
+    counts["endurance_score"] = fetch_score(con, garmin, score_start, end, "endurance")
+    counts["hill_score"] = fetch_score(con, garmin, score_start, end, "hill")
+    counts["workouts"] = fetch_workouts(con, garmin)
     con.commit()
 
     for table, (fetched, empty) in counts.items():
