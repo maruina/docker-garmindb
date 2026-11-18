@@ -407,7 +407,10 @@ def main():
         counts["body_composition"] = fetch_body_composition(con, garmin, start, end)
     # score endpoints return per-group ranges; incremental runs refetch the
     # last ~5 weeks, a backfill walks from --start-date in monthly chunks
-    score_start = max(start, end - datetime.timedelta(days=35))
+    if args.start_date:
+        score_start = start
+    else:
+        score_start = max(start, end - datetime.timedelta(days=35))
     if wanted("endurance_score"):
         counts["endurance_score"] = fetch_score(
             con, garmin, score_start, end, "endurance"
