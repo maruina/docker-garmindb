@@ -37,6 +37,13 @@ which stores them in a sixth database, `HealthData/DBs/garmin_metrics.db`:
 | `race_predictions` | 5K/10K/half/marathon snapshot per run | Current-only: the endpoint takes no date argument |
 | `lactate_threshold` | Lactate threshold heart rate and speed, stored when the value changes | Snapshot endpoint, no per-date history |
 | `body_composition` | Daily body fat, muscle, bone, water from the Index Scale | From the scale's first sync; weight itself lives in GarminDB's Weight table |
+| `endurance_score` | Weekly group endurance-score averages and max | From ~2025-02; earlier ranges return no values |
+| `hill_score` | Per-group hill-score entry (JSON payload) | From the device's hill-score feature window |
+| `workouts` | Workout library definitions (name, sport, full JSON) | Current library; the calendar never links these to days, so no scheduling history exists |
+
+Endpoints probed and deliberately skipped because they return nulls for this
+account: activity weather (weather is never attached to recorded activities)
+and activity exercise sets (gym sessions carry no structured sets).
 
 Incremental mode (entrypoint default) resumes from the last stored date per
 table. For manual backfill, exec into the running container:
