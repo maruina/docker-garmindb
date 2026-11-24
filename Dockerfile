@@ -1,4 +1,4 @@
-FROM python@sha256:df3f05ff4d74833f52146edd195c8f7913581b57796a820fb7e373457ace9bad
+FROM python@sha256:e4bc83a3314d078d651f06c8440e9a03ba892ee2f6577437f174abd8731fb343
 
 # garmindb 3.9.0 — the newest PyPI release whose dependency tree resolves.
 # 4.0.0 (PyPI, 2026-09-16) pins fitfile>=2.0.0 and idbutils>=1.3.0, versions
